@@ -1,240 +1,181 @@
 #!/bin/bash
 clear
-#--------[ BOT SSHPLUS — VENDAS COM PIX ]-----------#
+#--------[ DESENVOLVIDO POR @CRAZY_VPN ]-----------#
 source ShellBot.sh
 touch lista
-touch pagamentos_pendentes
-
-# === SUAS CONFIGURAÇÕES — COLOCA SEUS DADOS AQUI ===
-TOKEN_BOT="$1"
-ADMIN_ID="7761133138"
-GRUPO_ID="-1003820426660"
-MP_TOKEN="APP_USR-7527190269570273-090920-8e00f0eee8a23cb2fdd7f7d8db4a4dbf-226024458"
-
-# === PLANOS DE PREÇO ===
-VALOR_1DIA="1.00"
-VALOR_5DIAS="4.00"
-VALOR_10DIAS="10.00"
-VALOR_15DIAS="14.00"
-VALOR_30DIAS="20.00"
-
-# === SERVIDORES ADICIONAIS ===
+[[ -z $1 ]] && {
+    clear && echo "INFORME O TOKEN" && return 0
+}
+# Informações Server 2
 ip_server2="SEU-IP-AQUI"
 senha_server2="SUA-SENHA-AQUI"
+# Informações Server 3
 ip_server3="SEU-IP-AQUI"
 senha_server3="SUA-SENHA-AQUI"
-
-[[ ! -e RESET ]] && echo $(date +%d) > RESET
-
-api_bot="$TOKEN_BOT"
+[[ ! -e RESET ]] && touch RESET
+api_bot=$1
 ShellBot.init --token "$api_bot" --monitor --flush
 ShellBot.username
 
-# === FUNÇÃO: MENU PRINCIPAL ===
+# - Funcao menu
 menu() {
     local msg
-    msg="=×=×=×=×=×=×=×=×=×=×=×=×=×=\n"
-    msg+="<b>🤖 BEM-VINDO AO SSHPLUS 🤖</b>\n"
-    msg+="=×=×=×=×=×=×=×=×=×=×=×=×=×=\n\n"
-    msg+="✅ Escolha uma opção abaixo:\n"
-    
-    ShellBot.sendMessage --chat_id ${message_chat_id[$id]} \
-        --text "$(echo -e "$msg")" \
-        --reply_markup "$keyboard_menu" \
+        msg="=×=×=×=×=×=×=×=×=×=×=×=×=×=\n"
+        msg+="<b>🤖 OLA SEJA BEM VINDO(a) 🤖</b>\n"
+        msg+="=×=×=×=×=×=×=×=×=×=×=×=×=×=\n\n"
+        msg+="Gere seu teste agora mesmo!"
+        ShellBot.sendMessage --chat_id ${message_chat_id[$id]} \
+        --text "$(echo -e $msg)" \
+        --reply_markup "$keyboard1" \
         --parse_mode html
-    return 0
-}
-
-# === FUNÇÃO: MOSTRA PLANOS DE VENDA ===
-mostrar_planos() {
-    local cid=${callback_query_message_chat_id}
-    local msg
-    msg="=×=×=×=×=×=×=×=×=×=×=×=×=×=\n"
-    msg+="<b>💰 PLANOS DISPONÍVEIS 💰</b>\n"
-    msg+="=×=×=×=×=×=×=×=×=×=×=×=×=×=\n\n"
-    msg+="🟢 1 Dia  — R$ $VALOR_1DIA\n"
-    msg+="🟢 5 Dias — R$ $VALOR_5DIAS\n"
-    msg+="🟡 10 Dias — R$ $VALOR_10DIAS\n"
-    msg+="🟠 15 Dias — R$ $VALOR_15DIAS\n"
-    msg+="🔴 30 Dias — R$ $VALOR_30DIAS\n\n"
-    msg+="👇 Escolha o plano:"
-    
-    ShellBot.sendMessage --chat_id "$cid" \
-        --text "$(echo -e "$msg")" \
-        --reply_markup "$keyboard_planos" \
-        --parse_mode html
-    return 0
-}
-
-# === FUNÇÃO: GERA PIX NO MERCADO PAGO ===
-gerar_pix() {
-    local cid=$1
-    local dias=$2
-    local valor=$3
-    local user_id=$4
-    local usuario=$5
-    local senha=$6
-    
-    # Cria cobrança no Mercado Pago
-    local resposta=$(curl -s -X POST "https://api.mercadopago.com/v1/payments" \
-        -H "Authorization: Bearer $MP_TOKEN" \
-        -H "Content-Type: application/json" \
-        -d '{
-            "transaction_amount": '$valor',
-            "description": "Acesso SSH - '$dias' dias",
-            "payment_method_id": "pix",
-            "payer": { "email": "cliente@exemplo.com" }
-        }')
-    
-    local pix_copia=$(echo "$resposta" | grep -o '"qr_code":"[^"]*"' | cut -d'"' -f4)
-    local id_pagamento=$(echo "$resposta" | grep -o '"id":[0-9]*' | grep -o '[0-9]*')
-    
-    if [[ -z "$pix_copia" || "$pix_copia" == "null" ]]; then
-        ShellBot.sendMessage --chat_id "$cid" \
-            --text "❌ Erro ao gerar PIX! Tente novamente mais tarde."
-        return 1
-    fi
-    
-    # Salva pra monitorar pagamento
-    echo "$id_pagamento $cid $dias $valor $usuario $senha $user_id" >> pagamentos_pendentes
-    
-    # Envia PIX pro cliente
-    ShellBot.sendMessage --chat_id "$cid" \
-        --text "$(echo -e "💳 <b>PAGAMENTO VIA PIX</b>\n\n⏳ Plano: $dias Dias\n💰 Valor: R$ $valor\n\n📋 <b>COPIA E COLA:</b>\n<pre>$pix_copia</pre>\n\n⏳ Após pagar, aguarde até 5 minutos. O acesso será enviado automaticamente!")" \
-        --parse_mode html
-    
-    # Avisa admin
-    ShellBot.sendMessage --chat_id "$ADMIN_ID" \
-        --text "📩 NOVA VENDA PENDENTE!\n\n👤 Cliente ID: $user_id\n⏳ Plano: $dias Dias\n💰 Valor: R$ $valor\n🔑 ID Pagamento: $id_pagamento"
-    
-    return 0
-}
-
-# === FUNÇÃO: VERIFICA PAGAMENTO ===
-verificar_pagamentos() {
-    [[ ! -f pagamentos_pendentes ]] && return 0
-    
-    while read -r id_pag cid dias valor usuario senha user_id; do
-        [[ -z "$id_pag" || "$id_pag" == "#" ]] && continue
-        
-        local status=$(curl -s -H "Authorization: Bearer $MP_TOKEN" \
-            "https://api.mercadopago.com/v1/payments/$id_pag" | grep -o '"status":"[^"]*"' | cut -d'"' -f4)
-        
-        if [[ "$status" == "approved" ]]; then
-            # Cria o acesso
-            local tuserdate=$(date '+%Y/%m/%d' -d "+$dias days")
-            useradd -M -N -s /bin/false "$usuario" -e "$tuserdate" > /dev/null 2>&1
-            (echo "$senha"; echo "$senha") | passwd "$usuario" > /dev/null 2>&1
-            echo "$senha" > /etc/SSHPlus/senha/$usuario
-            echo "$usuario $dias" >> /root/usuarios.db
-            
-            # Envia dados pro cliente
-            ShellBot.sendMessage --chat_id "$cid" \
-                --text "$(echo -e "✅ <b>PAGAMENTO CONFIRMADO!</b>\n\n🔐 SEUS DADOS DE ACESSO:\n\nIP: $(cat /etc/IP)\nUSUÁRIO: <code>$usuario</code>\nSENHA: <code>$senha</code>\n⏳ Válido por: $dias Dias\n\nObrigado pela compra! 🚀")" \
-                --parse_mode html
-            
-            # Avisa grupo
-            ShellBot.sendMessage --chat_id "$GRUPO_ID" \
-                --text "✅ VENDA CONCLUÍDA!\n\n👤 Cliente: $user_id\n⏳ Plano: $dias Dias\n💰 Valor: R$ $valor"
-            
-            # Remove da lista
-            sed -i "/$id_pag/d" pagamentos_pendentes
-        fi
-    done < pagamentos_pendentes
-}
-
-# === FUNÇÃO: TESTE GRÁTIS (1x por dia) ===
-criarteste() {
-    local cid=${callback_query_message_chat_id}
-    local uid=${callback_query_from_id}
-    
-    [[ $(grep -wc "$uid" lista) -gt 0 ]] && {
-        ShellBot.sendMessage --chat_id "$cid" \
-            --text "⚠️ Você já gerou seu teste grátis hoje!\nTente novamente amanhã ou escolha um plano abaixo:" \
-            --reply_markup "$keyboard_planos"
         return 0
+}
+
+# - funcao criar ssh
+criarteste() {
+    [[ $(grep -wc ${callback_query_from_id} lista) != '0' ]] && {
+      ShellBot.sendMessage --chat_id ${callback_query_message_chat_id} \
+        --text "VC JA CRIOU SSH HOJE !"
+      return 0
     }
-    
-    local usuario="teste$(( RANDOM% + 2500 ))"
-    local senha=$(( RANDOM%90000 + 10000 ))
-    local tuserdate=$(date '+%Y/%m/%d' -d "+1 day")
-    
-    useradd -M -N -s /bin/false "$usuario" -e "$tuserdate" > /dev/null 2>&1
-    (echo "$senha"; echo "$senha") | passwd "$usuario" > /dev/null 2>&1
+    usuario=$(echo teste$(( RANDOM% + 250 )))
+    senha=$((RANDOM% + 99999))
+    limite='1'
+    tempo='1'
+    tuserdate=$(date '+%C%y/%m/%d' -d " +1 days")
+    useradd -M -N -s /bin/false $usuario -e $tuserdate > /dev/null 2>&1
+    (echo "$senha";echo "$senha") | passwd $usuario > /dev/null 2>&1
     echo "$senha" > /etc/SSHPlus/senha/$usuario
-    echo "$usuario 1" >> /root/usuarios.db
-    
-    echo "$uid" >> lista
-    
-    ShellBot.sendMessage --chat_id "$cid" \
-        --text "$(echo -e "✅ <b>TESTE GRÁTIS CRIADO!</b>\n\nIP: $(cat /etc/IP)\nUSUÁRIO: <code>$usuario</code>\nSENHA: <code>$senha</code>\n⏳ Válido por: 24 Horas\n\n💬 Gostou? Escolha um plano para continuar usando!")" \
-        --parse_mode html
+    echo "$usuario $limite" >> /root/usuarios.db
+    echo "#!/bin/bash
+pkill -f "$usuario"
+userdel --force $usuario
+grep -v ^$usuario[[:space:]] /root/usuarios.db > /tmp/ph ; cat /tmp/ph > /root/usuarios.db
+rm /etc/SSHPlus/senha/$usuario > /dev/null 2>&1
+rm -rf /etc/SSHPlus/userteste/$usuario.sh" > /etc/SSHPlus/userteste/$usuario.sh
+    chmod +x /etc/SSHPlus/userteste/$usuario.sh
+    at -f /etc/SSHPlus/userteste/$usuario.sh now + $tempo hour > /dev/null 2>&1
+    echo ${callback_query_from_id} >> lista
+    # - ENVIA O SSH
+    ShellBot.sendMessage --chat_id ${callback_query_message_chat_id} \
+    --text "$(echo -e "✅ <b>Criado com sucesso</b> ✅\n\nIP: $(cat /etc/IP)\nUSUARIO: <code>$usuario</code>\nSENHA: <code>$senha</code>\n\n⏳ Expira em: $tempo Hora")" \
+    --parse_mode html
     return 0
 }
 
-# === FUNÇÃO: PROCESSAR COMPRA DE PLANO ===
-processar_compra() {
-    local plano=$1
-    local cid=${callback_query_message_chat_id}
-    local uid=${callback_query_from_id}
-    local usuario="ssh$(( RANDOM% + 100000 ))"
-    local senha=$(( RANDOM%900000 + 100000 ))
-    
-    case "$plano" in
-        plano_1)  dias=1;  valor=$VALOR_1DIA ;;
-        plano_5)  dias=5;  valor=$VALOR_5DIAS ;;
-        plano_10) dias=10; valor=$VALOR_10DIAS ;;
-        plano_15) dias=15; valor=$VALOR_15DIAS ;;
-        plano_30) dias=30; valor=$VALOR_30DIAS ;;
-    esac
-    
-    gerar_pix "$cid" "$dias" "$valor" "$uid" "$usuario" "$senha"
+# - funcao criar ssh 2
+criarteste2() {
+   [[ $(grep -wc ${callback_query_from_id} lista) != '0' ]] && {
+      ShellBot.sendMessage --chat_id ${callback_query_message_chat_id} \
+        --text "VC JA CRIOU SSH HOJE !"
+      return 0
+    }
+    usuario=$(echo teste$(( RANDOM% + 250 )))
+    senha=$((RANDOM% + 99999))
+    limite='1'
+    tempo='1'
+    tuserdate=$(date '+%C%y/%m/%d' -d " +1 days")
+    if sshpass -p "$senha_server2" ssh -o ConnectTimeout=2 -o StrictHostKeyChecking=no root@$ip_server2 echo "ok" 1>/dev/null 2>/dev/null; then
+		sshpass -p "$senha_server2" ssh -o ConnectTimeout=2 -o StrictHostKeyChecking=no root@$ip_server2 << EOF
+		useradd -M -N -s /bin/false $usuario -e $tuserdate > /dev/null 2>&1
+    (echo "$senha";echo "$senha") | passwd $usuario > /dev/null 2>&1
+    echo "$senha" > /etc/SSHPlus/senha/$usuario
+    echo "$usuario $limite" >> /root/usuarios.db
+    echo "#!/bin/bash
+pkill -f "$usuario"
+userdel --force $usuario
+grep -v ^$usuario[[:space:]] /root/usuarios.db > /tmp/ph ; cat /tmp/ph > /root/usuarios.db
+rm /etc/SSHPlus/senha/$usuario > /dev/null 2>&1
+rm -rf /etc/SSHPlus/userteste/$usuario.sh" > /etc/SSHPlus/userteste/$usuario.sh
+chmod +x /etc/SSHPlus/userteste/$usuario.sh
+at -f /etc/SSHPlus/userteste/$usuario.sh now + $tempo hour > /dev/null 2>&1
+EOF
+	echo ${callback_query_from_id} >> lista
+    # - ENVIA O SSH
+    ShellBot.sendMessage --chat_id ${callback_query_message_chat_id} \
+    --text "$(echo -e "✅ <b>Criado com sucesso</b> ✅\n\nIP: $ip_server2\nUSUARIO: <code>$usuario</code>\nSENHA: <code>$senha</code>\n\n⏳ Expira em: $tempo Hora")" \
+    --parse_mode html
+    return 0
+else
+ShellBot.sendMessage --chat_id ${callback_query_message_chat_id} \
+	--text "$(echo -e Erro Tente novamente Mais tarde!)" \
+	--parse_mode html
+	return 0
+fi
 }
 
-# === TECLADOS ===
-unset botao_menu botao_planos
-botao_menu=''
-ShellBot.InlineKeyboardButton --button 'botao_menu' --line 1 --text '🎁 TESTE GRÁTIS' --callback_data 'gerar_teste'
-ShellBot.InlineKeyboardButton --button 'botao_menu' --line 2 --text '💰 COMPRAR ACESSO' --callback_data 'ver_planos'
-keyboard_menu="$(ShellBot.InlineKeyboardMarkup -b 'botao_menu')"
-
-ShellBot.InlineKeyboardButton --button 'botao_planos' --line 1 --text '🟢 1 Dia — R$ 1,00' --callback_data 'plano_1'
-ShellBot.InlineKeyboardButton --button 'botao_planos' --line 1 --text '🟢 5 Dias — R$ 4,00' --callback_data 'plano_5'
-ShellBot.InlineKeyboardButton --button 'botao_planos' --line 2 --text '🟡 10 Dias — R$ 10,00' --callback_data 'plano_10'
-ShellBot.InlineKeyboardButton --button 'botao_planos' --line 2 --text '🟠 15 Dias — R$ 14,00' --callback_data 'plano_15'
-ShellBot.InlineKeyboardButton --button 'botao_planos' --line 3 --text '🔴 30 Dias — R$ 20,00' --callback_data 'plano_30'
-ShellBot.InlineKeyboardButton --button 'botao_planos' --line 4 --text '⬅️ Voltar' --callback_data 'menu'
-keyboard_planos="$(ShellBot.InlineKeyboardMarkup -b 'botao_planos')"
-
-# === REGISTRAR FUNÇÕES ===
-ShellBot.regHandleFunction --function criarteste --callback_data gerar_teste
-ShellBot.regHandleFunction --function mostrar_planos --callback_data ver_planos
-ShellBot.regHandleFunction --function processar_compra --callback_data plano_1
-ShellBot.regHandleFunction --function processar_compra --callback_data plano_5
-ShellBot.regHandleFunction --function processar_compra --callback_data plano_10
-ShellBot.regHandleFunction --function processar_compra --callback_data plano_15
-ShellBot.regHandleFunction --function processar_compra --callback_data plano_30
-ShellBot.regHandleFunction --function menu --callback_data menu
-
-# === LOOP PRINCIPAL ===
-while :; do
-    # Reseta lista de teste diariamente
-    [[ "$(date +%d)" != "$(cat RESET 2>/dev/null)" ]] && {
-        echo $(date +%d) > RESET
-        > lista
+# - funcao criar ssh 3
+criarteste3() {
+	[[ $(grep -wc ${callback_query_from_id} lista) != '0' ]] && {
+      ShellBot.sendMessage --chat_id ${callback_query_message_chat_id} \
+        --text "VC JA CRIOU SSH HOJE !"
+      return 0
     }
-    
-    # Verifica pagamentos aprovados
-    verificar_pagamentos
-    
-    # Processa mensagens
-    ShellBot.getUpdates --limit 100 --offset $(ShellBot.OffsetNext) --timeout 30
-    
-    for id in $(ShellBot.ListUpdates); do
-        (
-            ShellBot.watchHandle --callback_data "${callback_query_data[$id]}"
-            comando=(${message_text[$id]})
-            [[ "${comando[0]}" = "/start" || "${comando[0]}" = "/menu" ]] && menu
-        ) &
-    done
+    usuario=$(echo teste$(( RANDOM% + 250 )))
+    senha=$((RANDOM% + 99999))
+    limite='1'
+    tempo='1'
+    tuserdate=$(date '+%C%y/%m/%d' -d " +1 days")
+    if sshpass -p "$senha_server3" ssh -o ConnectTimeout=2 -o StrictHostKeyChecking=no root@$ip_server3 echo "ok" 1>/dev/null 2>/dev/null; then
+		sshpass -p "$senha_server3" ssh -o ConnectTimeout=2 -o StrictHostKeyChecking=no root@$ip_server3 << EOF
+		useradd -M -N -s /bin/false $usuario -e $tuserdate > /dev/null 2>&1
+    (echo "$senha";echo "$senha") | passwd $usuario > /dev/null 2>&1
+    echo "$senha" > /etc/SSHPlus/senha/$usuario
+    echo "$usuario $limite" >> /root/usuarios.db
+    echo "#!/bin/bash
+pkill -f "$usuario"
+userdel --force $usuario
+grep -v ^$usuario[[:space:]] /root/usuarios.db > /tmp/ph ; cat /tmp/ph > /root/usuarios.db
+rm /etc/SSHPlus/senha/$usuario > /dev/null 2>&1
+rm -rf /etc/SSHPlus/userteste/$usuario.sh" > /etc/SSHPlus/userteste/$usuario.sh
+chmod +x /etc/SSHPlus/userteste/$usuario.sh
+at -f /etc/SSHPlus/userteste/$usuario.sh now + $tempo hour > /dev/null 2>&1
+EOF
+	echo ${callback_query_from_id} >> lista
+    # - ENVIA O SSH
+    ShellBot.sendMessage --chat_id ${callback_query_message_chat_id} \
+    --text "$(echo -e "✅ <b>Criado com sucesso</b> ✅\n\nIP: $ip_server3\nUSUARIO: <code>$usuario</code>\nSENHA: <code>$senha</code>\n\n⏳ Expira em: $tempo Hora")" \
+    --parse_mode html
+    return 0
+else
+ShellBot.sendMessage --chat_id ${callback_query_message_chat_id} \
+	--text "$(echo -e Erro Tente novamente Mais tarde!)" \
+	--parse_mode html
+	return 0
+fi
+}
+
+#informacoes usuario
+infouser () {
+	ShellBot.sendMessage --chat_id ${message_chat_id[$id]} \
+	--text "$(echo -e "Nome:  ${message_from_first_name[$(ShellBot.ListUpdates)]}\nUser: @${message_from_username[$(ShellBot.ListUpdates)]:-null}")\nID: ${message_from_id[$(ShellBot.ListUpdates)]} " \
+	--parse_mode html
+	return 0
+}
+
+unset botao1
+botao1=''
+ShellBot.InlineKeyboardButton --button 'botao1' --line 1 --text '🇧🇷 TESTE BR1 🇧🇷' --callback_data 'gerarssh'
+ShellBot.InlineKeyboardButton --button 'botao1' --line 1 --text '🇧🇷 TESTE BR2 🇧🇷' --callback_data 'gerarssh2'
+ShellBot.InlineKeyboardButton --button 'botao1' --line 1 --text '🇧🇷 TESTE BR3 🇧🇷' --callback_data 'gerarssh3'
+ShellBot.InlineKeyboardButton --button 'botao1' --line 2 --text '🇧🇷 SSH PREMIUM 🇧🇷' --callback_data '2' --url 't.me/sshplus' # LINK TELEGRAM
+ShellBot.regHandleFunction --function criarteste --callback_data gerarssh
+ShellBot.regHandleFunction --function criarteste2 --callback_data gerarssh2
+ShellBot.regHandleFunction --function criarteste3 --callback_data gerarssh3
+unset keyboard1
+keyboard1="$(ShellBot.InlineKeyboardMarkup -b 'botao1')"
+while :; do
+   [[ "$(date +%d)" != "$(cat RESET)" ]] && {
+   	echo $(date +%d) > RESET
+   	echo ' ' > lista
+   }
+  ShellBot.getUpdates --limit 100 --offset $(ShellBot.OffsetNext) --timeout 30
+  for id in $(ShellBot.ListUpdates); do
+    (
+      ShellBot.watchHandle --callback_data ${callback_query_data[$id]}
+      comando=(${message_text[$id]})
+      [[ "${comando[0]}" = "/menu"  || "${comando[0]}" = "/start" ]] && menu
+      [[ "${comando[0]}" = "/id"  ]] && infouser
+    ) &
+  done
 done
