@@ -2,7 +2,10 @@
 clear
 #--------@Luciliosantos-----------#
 source ShellBot2.sh
-ShellBot.init --token "1999518553:AAFUgZJUwrXYXBl2qlfztzhB5upEk19xNbk" --monitor --flush
+BOT_TOKEN="${BOT_TOKEN:-}"
+[[ -f /etc/SSHPlus/bot.conf ]] && source /etc/SSHPlus/bot.conf
+[[ -n "$BOT_TOKEN" ]] || { echo "BOT_TOKEN não configurado em /etc/SSHPlus/bot.conf"; exit 1; }
+ShellBot.init --token "$BOT_TOKEN" --monitor --flush
 ShellBot.username
 
 # - Funcao menu

@@ -17,7 +17,7 @@ configdns() {
     ip6tables -t nat -I PREROUTING -i $interface -p udp --dport 53 -j REDIRECT --to-ports 5300
 }
 
-echo -e "${CORTITLE}           SSHPLUS SLOWDNS (Beta)            ${SCOLOR}"
+echo -e "${CORTITLE}           LNS PRO SLOWDNS (Beta)            ${SCOLOR}"
 installslowdns() {
     echo -e "\n${YELLOW}ESTEJA CIENTE QUE ESSE METODO AINDA\nESTA NA FASE BETA E QUE ALEM DE SER\nLENTO PODE NAO FUNCIONAR PERFEITAMENTE ! ${SCOLOR}\n"
     echo -ne "${GREEN}DESEJA CONTINUAR A INSTALACAO ? ${YELLOW}[s/n]:${SCOLOR} "
@@ -63,7 +63,7 @@ initslow() {
             [[ -e $DIR/autodns ]] && nameserver=$(grep -w 'server.key' /etc/SSHPlus/dns/autodns | awk -F' ' '{print $9}') || nameserver='Null'
             tmx='curl -sO https://raw.githubusercontent.com/Luciliosantos/SSHPLUS/main/Install/slowdns && chmod +x slowdns && ./slowdns'
             clear
-            echo -e "${CORTITLE}           SSHPLUS SLOWDNS (Beta)            ${SCOLOR}"
+            echo -e "${CORTITLE}           LNS PRO SLOWDNS (Beta)            ${SCOLOR}"
             echo -e "\n${YELLOW}NAMESERVER(NS)${SCOLOR}: $nameserver"
             echo -e "${YELLOW}CHAVE PUBLICA${SCOLOR}: $keypub"
             echo -e "\n${GREEN}COMANDO TERMUX${SCOLOR}: ${tmx} ${nameserver} ${keypub}"
@@ -80,7 +80,7 @@ initslow() {
         fi
     } || {
         clear
-        echo -e "${CORTITLE}           SSHPLUS SLOWDNS (Beta)            ${SCOLOR}"
+        echo -e "${CORTITLE}           LNS PRO SLOWDNS (Beta)            ${SCOLOR}"
         echo -ne "\n${GREEN}INFORME O DOMINIO NS${SCOLOR}: "
         read ns
         [[ -z "$ns" ]] && {

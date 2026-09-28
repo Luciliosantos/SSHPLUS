@@ -1,6 +1,6 @@
 #!/bin/bash
 clear
-#--------[ DESENVOLVIDO POR @CRAZY_VPN ]-----------#
+#--------[ DESENVOLVIDO POR @LNS-PRO ]-----------#
 source ShellBot.sh
 touch lista pagamentos_pendentes
 [[ -z $1 ]] && {
@@ -8,18 +8,20 @@ touch lista pagamentos_pendentes
 }
 
 api_bot=$1
-ADMIN_ID="7761133138"
-GRUPO_ID="-1003820426660"
-MP_TOKEN="APP_USR-7527190269570273-090920-8e00f0eee8a23cb2fdd7f7d8db4a4dbf-226024458"
+# Configurações ficam fora do código para não expor segredos no GitHub.
+BOT_CONFIG="/etc/SSHPlus/bot.conf"
+[[ -f "$BOT_CONFIG" ]] && source "$BOT_CONFIG"
+ADMIN_ID="${ADMIN_ID:-${2:-}}"
+GRUPO_ID="${GRUPO_ID:-}"
+MP_TOKEN="${MP_TOKEN:-}"
+ip_server2="${ip_server2:-SEU-IP-AQUI}"
+senha_server2="${senha_server2:-SUA-SENHA-AQUI}"
+ip_server3="${ip_server3:-SEU-IP-AQUI}"
+senha_server3="${senha_server3:-SUA-SENHA-AQUI}"
 
 V1="1.00"; V5="4.00"; V10="10.00"; V15="14.00"; V30="20.00"
-
-# Informações Server 2
-ip_server2="SEU-IP-AQUI"
-senha_server2="SUA-SENHA-AQUI"
-# Informações Server 3
-ip_server3="SEU-IP-AQUI"
-senha_server3="SUA-SENHA-AQUI"
+XHTTP_V1="1.00"; XHTTP_V5="4.00"; XHTTP_V10="10.00"; XHTTP_V15="14.00"; XHTTP_V30="20.00"
+XHTTP_MANAGER="/bin/xhttp-manager"
 
 [[ ! -e RESET ]] && touch RESET
 ShellBot.init --token "$api_bot" --monitor --flush
@@ -29,7 +31,7 @@ ShellBot.username
 menu() {
     local msg
     msg="=×=×=×=×=×=×=×=×=×=×=×=×=×=\n"
-    msg+="<b>🤖 BEM-VINDO AO SSHPLUS 🤖</b>\n"
+    msg+="<b>🚀 BEM-VINDO AO LNS PRO 🚀</b>\n"
     msg+="=×=×=×=×=×=×=×=×=×=×=×=×=×=\n\n"
     msg+="Escolha abaixo:"
     ShellBot.sendMessage --chat_id ${message_chat_id[$id]} \
@@ -37,6 +39,43 @@ menu() {
         --reply_markup "$keyboard1" \
         --parse_mode html
     return 0
+}
+
+# ========== XHTTP ==========
+xhttp_ready() {
+    [[ -x "$XHTTP_MANAGER" ]] && return 0
+    [[ -x "/etc/SSHPlus/xhttp-manager" ]] && { XHTTP_MANAGER="/etc/SSHPlus/xhttp-manager"; return 0; }
+    return 1
+}
+
+xhttp_test() {
+    local cid=${callback_query_message_chat_id} uid=${callback_query_from_id}
+    if ! xhttp_ready; then
+        ShellBot.sendMessage --chat_id "$cid" --text "❌ XHTTP ainda não foi instalado no servidor. Peça ao administrador para executar: <code>xhttp-manager setup</code>" --parse_mode html
+        return 0
+    fi
+    mkdir -p /etc/SSHPlus/xhttp
+    local mark="/etc/SSHPlus/xhttp/test-$uid"
+    [[ -f "$mark" ]] && { ShellBot.sendMessage --chat_id "$cid" --text "⚠️ Você já criou um teste XHTTP hoje."; return 0; }
+    local out user days=1
+    user="xt$((RANDOM%9000+1000))"
+    out=$("$XHTTP_MANAGER" add "$user" "$days" 2>&1) || {
+        ShellBot.sendMessage --chat_id "$cid" --text "❌ Não foi possível criar o teste XHTTP. Verifique o servidor."; return 0;
+    }
+    touch "$mark"
+    ShellBot.sendMessage --chat_id "$cid" --text "$(echo -e "⚡ <b>TESTE XHTTP CRIADO</b> ⚡\n\n<pre>$out</pre>")" --parse_mode html
+}
+
+mostrar_xhttp() {
+    local cid=${callback_query_message_chat_id}
+    ShellBot.sendMessage --chat_id "$cid" --text "$(echo -e "<b>⚡ XHTTP</b>\n\nEscolha uma opção:")" --reply_markup "$keyboard_xhttp" --parse_mode html
+}
+
+mostrar_planos_xhttp(){
+    local cid=${callback_query_message_chat_id}
+    ShellBot.sendMessage --chat_id "$cid" \
+    --text "$(echo -e "<b>⚡ PLANOS XHTTP</b>\n\n🟢 1 Dia — R$ $XHTTP_V1\n🟢 5 Dias — R$ $XHTTP_V5\n🟡 10 Dias — R$ $XHTTP_V10\n🟠 15 Dias — R$ $XHTTP_V15\n🔴 30 Dias — R$ $XHTTP_V30")" \
+    --reply_markup "$keyboard_planos_xhttp" --parse_mode html
 }
 
 # ========== PLANOS DE COMPRA ==========
@@ -48,7 +87,8 @@ mostrar_planos(){
 }
 
 gerar_pix(){
-    local cid=$1 d=$2 v=$3 uid=$4 u=$5 s=$6
+    local cid=$1 d=$2 v=$3 uid=$4 u=$5 s=$6 service=${7:-ssh}
+    [[ -z "$MP_TOKEN" ]] && { ShellBot.sendMessage --chat_id "$cid" --text "❌ Mercado Pago não configurado no servidor."; return 1; }
     local res=$(curl -s -X POST https://api.mercadopago.com/v1/payments \
         -H "Authorization: Bearer $MP_TOKEN" \
         -H "Content-Type: application/json" \
@@ -56,7 +96,7 @@ gerar_pix(){
     local pix=$(echo "$res" | grep -o '"qr_code":"[^"]*"' | cut -d'"' -f4)
     local idpag=$(echo "$res" | grep -o '"id":[0-9]*' | grep -o '[0-9]*')
     [[ -z "$pix" ]] && { ShellBot.sendMessage --chat_id "$cid" --text "❌ Erro ao gerar PIX"; return; }
-    echo "$idpag $cid $d $v $u $s $uid" >> pagamentos_pendentes
+    echo "$idpag $cid $d $v $u $s $uid $service" >> pagamentos_pendentes
     ShellBot.sendMessage --chat_id "$cid" \
         --text "$(echo -e "💳 <b>PAGAMENTO VIA PIX</b>\n\nValor: R$ $v\n\nCopie e cola:\n<pre>$pix</pre>")" --parse_mode html
     ShellBot.sendMessage --chat_id "$ADMIN_ID" --text "📩 Pedido: $uid — $d dias — R$ $v"
@@ -64,31 +104,40 @@ gerar_pix(){
 
 processar_compra(){
     local p=$1 cid=${callback_query_message_chat_id} uid=${callback_query_from_id}
-    local u="ssh$RANDOM" s=$((RANDOM%900000+100000)) d v exp
+    local u="ssh$RANDOM" s=$((RANDOM%900000+100000)) d v service="ssh"
     case $p in
-        p1) d=1; v=$V1 ;;
-        p5) d=5; v=$V5 ;;
-        p10) d=10; v=$V10 ;;
-        p15) d=15; v=$V15 ;;
-        p30) d=30; v=$V30 ;;
+        p1) d=1; v=$V1 ;; p5) d=5; v=$V5 ;; p10) d=10; v=$V10 ;; p15) d=15; v=$V15 ;; p30) d=30; v=$V30 ;;
+        xp1) d=1; v=$XHTTP_V1; service="xhttp" ;; xp5) d=5; v=$XHTTP_V5; service="xhttp" ;; xp10) d=10; v=$XHTTP_V10; service="xhttp" ;; xp15) d=15; v=$XHTTP_V15; service="xhttp" ;; xp30) d=30; v=$XHTTP_V30; service="xhttp" ;;
+        *) return 1 ;;
     esac
-    gerar_pix "$cid" "$d" "$v" "$uid" "$u" "$s"
+    gerar_pix "$cid" "$d" "$v" "$uid" "$u" "$s" "$service"
 }
 
 verificar_pagamentos(){
     [[ ! -f pagamentos_pendentes ]] && return
     local tmp=$(mktemp)
-    while read idpag cid d v u s uid; do
+    while read idpag cid d v u s uid service; do
         [[ -z "$idpag" || "$idpag" = \#* ]] && continue
         local st=$(curl -s -H "Authorization: Bearer $MP_TOKEN" "https://api.mercadopago.com/v1/payments/$idpag" | grep -o '"status":"[^"]*"' | cut -d'"' -f4)
         if [[ "$st" = "approved" ]]; then
-            exp=$(date +%Y/%m/%d -d "+$d days")
-            useradd -M -N -s /bin/false "$u" -e "$exp" 2>/dev/null
-            echo -e "$s\n$s" | passwd "$u" 2>/dev/null
-            local ip=$(cat /etc/IP)
-            ShellBot.sendMessage --chat_id "$cid" \
-                --text "$(echo -e "✅ <b>PAGO!</b>\n\nIP: $ip\nUsuário: <code>$u</code>\nSenha: <code>$s</code>")" --parse_mode html
-            ShellBot.sendMessage --chat_id "$GRUPO_ID" --text "✅ VENDA: $d dias — R$ $v"
+            if [[ "$service" = "xhttp" ]]; then
+                local xout
+                xout=$("$XHTTP_MANAGER" add "$u" "$d" 2>&1)
+                if [[ $? -ne 0 ]]; then
+                    echo "$idpag $cid $d $v $u $s $uid $service" >> "$tmp"
+                    ShellBot.sendMessage --chat_id "$cid" --text "⚠️ Pagamento aprovado, mas não foi possível criar o XHTTP automaticamente. O administrador precisa verificar o servidor."
+                    continue
+                fi
+                ShellBot.sendMessage --chat_id "$cid" --text "$(echo -e "✅ <b>PAGAMENTO APROVADO</b>\n\n⚡ <b>XHTTP</b>\n\n<pre>$xout</pre>")" --parse_mode html
+            else
+                exp=$(date +%Y/%m/%d -d "+$d days")
+                useradd -M -N -s /bin/false "$u" -e "$exp" 2>/dev/null
+                echo -e "$s\n$s" | passwd "$u" 2>/dev/null
+                local ip=$(cat /etc/IP)
+                ShellBot.sendMessage --chat_id "$cid" \
+                    --text "$(echo -e "✅ <b>PAGO!</b>\n\nIP: $ip\nUsuário: <code>$u</code>\nSenha: <code>$s</code>")" --parse_mode html
+            fi
+            [[ -n "$GRUPO_ID" ]] && ShellBot.sendMessage --chat_id "$GRUPO_ID" --text "✅ VENDA: $service — $d dias — R$ $v"
         else
             echo "$idpag $cid $d $v $u $s $uid" >> "$tmp"
         fi
@@ -198,9 +247,27 @@ botao1=''
 ShellBot.InlineKeyboardButton --button 'botao1' --line 1 --text '🇧🇷 TESTE BR1 🇧🇷' --callback_data 'gerarssh'
 ShellBot.InlineKeyboardButton --button 'botao1' --line 1 --text '🇧🇷 TESTE BR2 🇧🇷' --callback_data 'gerarssh2'
 ShellBot.InlineKeyboardButton --button 'botao1' --line 1 --text '🇧🇷 TESTE BR3 🇧🇷' --callback_data 'gerarssh3'
-ShellBot.InlineKeyboardButton --button 'botao1' --line 2 --text '💰 COMPRAR ACESSO' --callback_data 'planos'
-ShellBot.InlineKeyboardButton --button 'botao1' --line 2 --text '🇧🇷 SSH PREMIUM 🇧🇷' --url 't.me/sshplus'
+ShellBot.InlineKeyboardButton --button 'botao1' --line 2 --text '⚡ XHTTP' --callback_data 'xhttp'
+ShellBot.InlineKeyboardButton --button 'botao1' --line 3 --text '💰 COMPRAR ACESSO' --callback_data 'planos'
+ShellBot.InlineKeyboardButton --button 'botao1' --line 4 --text '🇧🇷 SSH PREMIUM 🇧🇷' --url 't.me/sshplus'
 keyboard1="$(ShellBot.InlineKeyboardMarkup -b 'botao1')"
+
+unset bxhttp
+bxhttp=''
+ShellBot.InlineKeyboardButton --button 'bxhttp' --line 1 --text '🧪 TESTE XHTTP' --callback_data 'xhttptest'
+ShellBot.InlineKeyboardButton --button 'bxhttp' --line 2 --text '💰 COMPRAR XHTTP' --callback_data 'xhttpplanos'
+ShellBot.InlineKeyboardButton --button 'bxhttp' --line 3 --text '⬅️ Voltar' --callback_data 'menu'
+keyboard_xhttp="$(ShellBot.InlineKeyboardMarkup -b 'bxhttp')"
+
+unset bxplanos
+bxplanos=''
+ShellBot.InlineKeyboardButton --button 'bxplanos' --line 1 --text '🟢 1 Dia — R$ 1,00' --callback_data 'xp1'
+ShellBot.InlineKeyboardButton --button 'bxplanos' --line 1 --text '🟢 5 Dias — R$ 4,00' --callback_data 'xp5'
+ShellBot.InlineKeyboardButton --button 'bxplanos' --line 2 --text '🟡 10 Dias — R$ 10,00' --callback_data 'xp10'
+ShellBot.InlineKeyboardButton --button 'bxplanos' --line 2 --text '🟠 15 Dias — R$ 14,00' --callback_data 'xp15'
+ShellBot.InlineKeyboardButton --button 'bxplanos' --line 3 --text '🔴 30 Dias — R$ 20,00' --callback_data 'xp30'
+ShellBot.InlineKeyboardButton --button 'bxplanos' --line 4 --text '⬅️ Voltar' --callback_data 'xhttp'
+keyboard_planos_xhttp="$(ShellBot.InlineKeyboardMarkup -b 'bxplanos')"
 
 unset bplanos
 bplanos=''
@@ -217,6 +284,14 @@ ShellBot.regHandleFunction --function criarteste --callback_data gerarssh
 ShellBot.regHandleFunction --function criarteste2 --callback_data gerarssh2
 ShellBot.regHandleFunction --function criarteste3 --callback_data gerarssh3
 ShellBot.regHandleFunction --function mostrar_planos --callback_data planos
+ShellBot.regHandleFunction --function xhttp_test --callback_data xhttptest
+ShellBot.regHandleFunction --function mostrar_xhttp --callback_data xhttp
+ShellBot.regHandleFunction --function mostrar_planos_xhttp --callback_data xhttpplanos
+ShellBot.regHandleFunction --function processar_compra --callback_data xp1
+ShellBot.regHandleFunction --function processar_compra --callback_data xp5
+ShellBot.regHandleFunction --function processar_compra --callback_data xp10
+ShellBot.regHandleFunction --function processar_compra --callback_data xp15
+ShellBot.regHandleFunction --function processar_compra --callback_data xp30
 ShellBot.regHandleFunction --function processar_compra --callback_data p1
 ShellBot.regHandleFunction --function processar_compra --callback_data p5
 ShellBot.regHandleFunction --function processar_compra --callback_data p10

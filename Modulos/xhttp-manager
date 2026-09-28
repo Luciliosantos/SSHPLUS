@@ -1,0 +1,277 @@
+#!/bin/bash
+# LNS PRO - XHTTP manager (VLESS + XHTTP)
+# Keeps XHTTP isolated from the legacy multi-v2ray/v2ray-util setup.
+set -u
+
+BASE=/etc/SSHPlus/xhttp
+CFG="$BASE/config.json"
+DB="$BASE/users.db"
+ENV="$BASE/settings.conf"
+XRAY_CORE=/usr/local/bin/xray-core
+SERVICE=xray-xhttp.service
+
+mkdir -p "$BASE"
+touch "$DB"
+chmod 700 "$BASE"
+chmod 600 "$DB" 2>/dev/null || true
+
+load_settings() {
+    DOMAIN="${DOMAIN:-}"
+    PORT="${PORT:-8080}"
+    PATH_XHTTP="${PATH_XHTTP:-/xhttp}"
+    TLS="${TLS:-0}"
+    CERT_FILE="${CERT_FILE:-}"
+    KEY_FILE="${KEY_FILE:-}"
+    [[ -f "$ENV" ]] && . "$ENV"
+}
+
+save_settings() {
+    cat > "$ENV" <<EOF2
+DOMAIN=$(printf '%q' "$DOMAIN")
+PORT=$(printf '%q' "$PORT")
+PATH_XHTTP=$(printf '%q' "$PATH_XHTTP")
+TLS=$(printf '%q' "$TLS")
+CERT_FILE=$(printf '%q' "$CERT_FILE")
+KEY_FILE=$(printf '%q' "$KEY_FILE")
+EOF2
+    chmod 600 "$ENV"
+}
+
+need_root() { [[ $(id -u) -eq 0 ]] || { echo "ERRO: execute como root."; exit 1; }; }
+
+install_core() {
+    need_root
+    if [[ -x "$XRAY_CORE" ]]; then
+        echo "Xray-core já instalado: $XRAY_CORE"
+        return 0
+    fi
+    command -v curl >/dev/null 2>&1 || apt-get update -y && apt-get install -y curl ca-certificates tar gzip
+    local tmp="$(mktemp -d)"
+    echo "Instalando Xray-core..."
+    if ! bash <(curl -fsSL https://github.com/XTLS/Xray-install/raw/main/install-release.sh) install; then
+        echo "ERRO: não foi possível instalar o Xray-core." >&2
+        rm -rf "$tmp"
+        return 1
+    fi
+    [[ -x /usr/local/bin/xray ]] || { echo "ERRO: binário xray não encontrado." >&2; rm -rf "$tmp"; return 1; }
+    cp -f /usr/local/bin/xray "$XRAY_CORE"
+    chmod 755 "$XRAY_CORE"
+    # O LNS PRO legado usa /usr/local/bin/xray como wrapper; preserve-o se for um symlink.
+    if [[ -L /usr/local/bin/xray && "$(readlink /usr/local/bin/xray)" != "$XRAY_CORE" ]]; then
+        rm -f /usr/local/bin/xray
+        ln -s "$(command -v v2ray-util 2>/dev/null || echo /usr/local/bin/v2ray)" /usr/local/bin/xray 2>/dev/null || true
+    fi
+    systemctl disable --now xray.service >/dev/null 2>&1 || true
+    rm -rf "$tmp"
+}
+
+validate_path() {
+    [[ "$PATH_XHTTP" == /* ]] || PATH_XHTTP="/$PATH_XHTTP"
+    [[ "$PATH_XHTTP" != */ ]] && PATH_XHTTP="$PATH_XHTTP/"
+}
+
+write_config() {
+    load_settings
+    validate_path
+    local tls_block=''
+    if [[ "$TLS" == "1" ]]; then
+        [[ -f "$CERT_FILE" && -f "$KEY_FILE" ]] || { echo "ERRO: certificado/chave TLS não encontrados." >&2; return 1; }
+        tls_block=$(cat <<EOF2
+        ,"streamSettings":{"network":"xhttp","security":"tls","tlsSettings":{"serverName":"$DOMAIN","certificates":[{"certificateFile":"$CERT_FILE","keyFile":"$KEY_FILE"}],"minVersion":"1.2"},"xhttpSettings":{"path":"$PATH_XHTTP","mode":"auto"}}
+EOF2
+)
+    else
+        tls_block=$(cat <<EOF2
+        ,"streamSettings":{"network":"xhttp","security":"none","xhttpSettings":{"path":"$PATH_XHTTP","mode":"auto"}}
+EOF2
+)
+    fi
+    cat > "$CFG" <<EOF2
+{
+  "log":{"loglevel":"warning","access":"$BASE/access.log","error":"$BASE/error.log"},
+  "inbounds":[{
+    "listen":"0.0.0.0",
+    "port":$PORT,
+    "protocol":"vless",
+    "settings":{"clients":[],"decryption":"none"}$tls_block
+  }],
+  "outbounds":[{"protocol":"freedom","tag":"direct"}]
+}
+EOF2
+    chmod 600 "$CFG"
+}
+
+add_client_to_config() {
+    local uuid="$1" email="$2"
+    python3 - "$CFG" "$uuid" "$email" <<'PY'
+import json,sys
+p,uuid,email=sys.argv[1:]
+with open(p) as f: c=json.load(f)
+clients=c['inbounds'][0]['settings'].setdefault('clients',[])
+if any(x.get('id')==uuid for x in clients): raise SystemExit('UUID já existe')
+clients.append({'id':uuid,'email':email})
+with open(p,'w') as f: json.dump(c,f,indent=2); f.write('\n')
+PY
+}
+
+remove_client_from_config() {
+    local uuid="$1"
+    python3 - "$CFG" "$uuid" <<'PY'
+import json,sys
+p,uuid=sys.argv[1:]
+with open(p) as f: c=json.load(f)
+clients=c['inbounds'][0]['settings'].get('clients',[])
+new=[x for x in clients if x.get('id')!=uuid]
+if len(new)==len(clients): raise SystemExit(2)
+c['inbounds'][0]['settings']['clients']=new
+with open(p,'w') as f: json.dump(c,f,indent=2); f.write('\n')
+PY
+}
+
+write_service() {
+    cat > /etc/systemd/system/$SERVICE <<EOF2
+[Unit]
+Description=LNS PRO XHTTP (Xray-core)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=$XRAY_CORE run -config $CFG
+Restart=on-failure
+RestartSec=3
+LimitNOFILE=1048576
+
+[Install]
+WantedBy=multi-user.target
+EOF2
+    systemctl daemon-reload
+}
+
+restart_service() {
+    write_service
+    "$XRAY_CORE" run -test -config "$CFG" >/tmp/xhttp-config-test.log 2>&1 || {
+        echo "ERRO na configuração XHTTP:"; cat /tmp/xhttp-config-test.log; return 1;
+    }
+    systemctl enable "$SERVICE" >/dev/null 2>&1
+    systemctl restart "$SERVICE"
+    sleep 1
+    systemctl is-active --quiet "$SERVICE" || { journalctl -u "$SERVICE" -n 30 --no-pager; return 1; }
+}
+
+setup() {
+    need_root
+    load_settings
+    echo "=== CONFIGURAÇÃO XHTTP ==="
+    read -r -p "Domínio (opcional se usar sem TLS): " DOMAIN
+    read -r -p "Porta [8080]: " PORT; PORT=${PORT:-8080}
+    read -r -p "Path XHTTP [/xhttp/]: " PATH_XHTTP; PATH_XHTTP=${PATH_XHTTP:-/xhttp/}
+    read -r -p "Usar TLS? [s/N]: " ans
+    if [[ "$ans" =~ ^[Ss]$ ]]; then
+        TLS=1
+        read -r -p "Arquivo do certificado: " CERT_FILE
+        read -r -p "Arquivo da chave: " KEY_FILE
+    else
+        TLS=0; CERT_FILE=""; KEY_FILE=""
+    fi
+    save_settings
+    install_core
+    write_config
+    restart_service
+    (crontab -l 2>/dev/null | grep -v 'xhttp-manager cleanup'; echo '*/10 * * * * /bin/xhttp-manager cleanup >/dev/null 2>&1') | crontab -
+    echo "XHTTP configurado com sucesso."
+}
+
+add_user() {
+    need_root
+    load_settings
+    [[ -f "$CFG" ]] || { echo "Execute: xhttp-manager setup"; return 1; }
+    local name="${1:-xhttp$((RANDOM%9000+1000))}"
+    local days="${2:-1}"
+    [[ "$name" =~ ^[A-Za-z0-9_.-]{2,32}$ ]] || { echo "Usuário inválido."; return 1; }
+    [[ "$days" =~ ^[0-9]+$ && "$days" -ge 1 && "$days" -le 365 ]] || { echo "Dias inválidos (1-365)."; return 1; }
+    grep -q "| $name |" "$DB" 2>/dev/null && { echo "Usuário já existe."; return 1; }
+    local uuid exp
+    uuid=$(cat /proc/sys/kernel/random/uuid)
+    exp=$(date -d "+$days days" +%Y-%m-%d)
+    add_client_to_config "$uuid" "$name" || return 1
+    printf '%s | %s | %s\n' "$uuid" "$name" "$exp" >> "$DB"
+    if ! restart_service; then
+        remove_client_from_config "$uuid" || true
+        sed -i "/| $name |/d" "$DB"
+        return 1
+    fi
+    local host="$DOMAIN"
+    [[ -z "$host" ]] && host="$(hostname -I 2>/dev/null | awk '{print $1}')"
+    local scheme="http"; [[ "$TLS" == "1" ]] && scheme="https"
+    echo "UUID=$uuid"
+    echo "USER=$name"
+    echo "EXPIRES=$exp"
+    echo "SERVER=$host"
+    echo "PORT=$PORT"
+    echo "PATH=$PATH_XHTTP"
+    echo "TLS=$TLS"
+    echo "VLESS=${scheme}://${uuid}@${host}:${PORT}?encryption=none&security=$([[ "$TLS" == 1 ]] && echo tls || echo none)&type=xhttp&path=$(printf '%s' "$PATH_XHTTP" | sed 's#/#%2F#g')#$([[ "$TLS" == 1 ]] && echo "&sni=$host")#$name"
+}
+
+del_user() {
+    need_root
+    load_settings
+    local q="${1:-}"
+    [[ -n "$q" ]] || { echo "Uso: xhttp-manager del <UUID|usuário>"; return 1; }
+    local uuid
+    uuid=$(awk -F' \| ' -v q="$q" '$1==q || $2==q {print $1; exit}' "$DB")
+    [[ -n "$uuid" ]] || { echo "Usuário não encontrado."; return 1; }
+    remove_client_from_config "$uuid" || return 1
+    sed -i "/^$uuid |/d" "$DB"
+    restart_service
+    echo "Usuário removido: $uuid"
+}
+
+list_users() {
+    load_settings
+    if [[ ! -s "$DB" ]]; then echo "Nenhum usuário XHTTP."; return 0; fi
+    echo "UUID | USUÁRIO | EXPIRAÇÃO"
+    cat "$DB"
+}
+
+cleanup() {
+    need_root
+    [[ -f "$DB" ]] || return 0
+    local today now uuid exp
+    now=$(date +%s)
+    while IFS=' | ' read -r uuid name exp; do
+        [[ -z "$uuid" || -z "$exp" ]] && continue
+        if [[ $(date -d "$exp 23:59:59" +%s 2>/dev/null || echo 0) -lt "$now" ]]; then
+            remove_client_from_config "$uuid" >/dev/null 2>&1 || true
+            sed -i "/^$uuid |/d" "$DB"
+        fi
+    done < "$DB"
+    [[ -f "$CFG" ]] && restart_service >/dev/null 2>&1 || true
+}
+
+info() {
+    load_settings
+    echo "=== XHTTP ==="
+    echo "Domínio: ${DOMAIN:-não definido}"
+    echo "Porta: $PORT"
+    echo "Path: $PATH_XHTTP"
+    echo "TLS: $([[ "$TLS" == 1 ]] && echo ativo || echo desativado)"
+    systemctl --no-pager --full status "$SERVICE" 2>/dev/null | head -20 || true
+}
+
+case "${1:-}" in
+    install) install_core; load_settings; [[ -f "$CFG" ]] || { save_settings; write_config; }; restart_service ;;
+    setup) setup ;;
+    add) add_user "${2:-}" "${3:-1}" ;;
+    del|remove) del_user "${2:-}" ;;
+    list) list_users ;;
+    cleanup) cleanup ;;
+    info|status) info ;;
+    restart) systemctl restart "$SERVICE" ;;
+    stop) systemctl stop "$SERVICE" ;;
+    start) systemctl start "$SERVICE" ;;
+    *)
+        echo "Uso: xhttp-manager {install|setup|add|del|list|info|start|stop|restart}"
+        ;;
+esac

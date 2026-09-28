@@ -2,7 +2,10 @@
 clear
 #--------@Luciliosantos-----------#
 source ShellBot2.sh
-ShellBot.init --token "1999518553:AAFUgZJUwrXYXBl2qlfztzhB5upEk19xNbk" --monitor --flush
+BOT_TOKEN="${BOT_TOKEN:-}"
+[[ -f /etc/SSHPlus/bot.conf ]] && source /etc/SSHPlus/bot.conf
+[[ -n "$BOT_TOKEN" ]] || { echo "BOT_TOKEN não configurado em /etc/SSHPlus/bot.conf"; exit 1; }
+ShellBot.init --token "$BOT_TOKEN" --monitor --flush
 ShellBot.username
 
 # - Funcao menu
@@ -69,7 +72,7 @@ msg_ex+="/criarusuario crazy 123 30 1"
 
 if awk -F : '$3 >= 1000 { print $1 }' /etc/passwd |grep $usuario 1>/dev/null 2>/dev/null; then
 	ShellBot.sendMessage --chat_id ${message_chat_id[$id]} \
-	--text "$(echo -e Usuario $usuario Ja existe !)" \
+	--text "$(echo -e "Usuario $usuario Ja existe !")" \
 	--parse_mode html
 	break
 fi
@@ -83,7 +86,7 @@ fi
 if [[ -z $senha ]]
 	then
 	ShellBot.sendMessage --chat_id ${message_chat_id[$id]} \
-	--text "$(echo -e Erro! senha vazia ou invalida)" \
+	--text "$(echo -e "Erro! senha vazia ou invalida")" \
 	--parse_mode html
 	ShellBot.sendMessage --chat_id ${message_chat_id[$id]} \
 	--text "$(echo -e $msg_ex)" \
@@ -93,7 +96,7 @@ fi
 if [[ -z $data ]]
 	then
 	ShellBot.sendMessage --chat_id ${message_chat_id[$id]} \
-	--text "$(echo -e Erro! Dias vazio ou invalido)" \
+	--text "$(echo -e "Erro! Dias vazio ou invalido")" \
 	--parse_mode html
 	ShellBot.sendMessage --chat_id ${message_chat_id[$id]} \
 	--text "$(echo -e $msg_ex)" \
@@ -103,7 +106,7 @@ fi
 if [[ -z $limite ]]
 	then
 	ShellBot.sendMessage --chat_id ${message_chat_id[$id]} \
-	--text "$(echo -e Erro! Limite vazio ou invalido)" \
+	--text "$(echo -e "Erro! Limite vazio ou invalido")" \
 	--parse_mode html
 	ShellBot.sendMessage --chat_id ${message_chat_id[$id]} \
 	--text "$(echo -e $msg_ex)" \
@@ -133,7 +136,7 @@ if useradd -M -N -s /bin/false $usuario -e $validade > /dev/null 2>/dev/null
         	break
         else
         	ShellBot.sendMessage --chat_id ${message_chat_id[$id]} \
-        	--text "$(echo -e <b>Senha invalida !</b>)" \
+		--text "$(echo -e "<b>Senha invalida !</b>")" \
         	--parse_mode html
         	ShellBot.sendMessage --chat_id ${message_chat_id[$id]} \
         	--text "$(echo -e $msg_ex)" \
@@ -142,7 +145,7 @@ if useradd -M -N -s /bin/false $usuario -e $validade > /dev/null 2>/dev/null
         fi
 else
 	ShellBot.sendMessage --chat_id ${message_chat_id[$id]} \
-	--text "$(echo -e <b>Erro ao criar conta SSH !</b>)" \
+	--text "$(echo -e "<b>Erro ao criar conta SSH !</b>")" \
 	--parse_mode html
 	break
 fi	
